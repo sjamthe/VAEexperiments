@@ -1,4 +1,4 @@
-__author__ = 'SherlockLiao'
+# Credit to https://github.com/L1aoXingyu/pytorch-beginner
 
 import torch
 import torchvision
@@ -11,6 +11,18 @@ from torchvision import transforms
 from torchvision.utils import save_image
 from torchvision.datasets import MNIST
 import os
+import time
+
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    #else "mps"
+    #if torch.backends.mps.is_available()
+    else "cpu"
+)
+# CPU is 2x faster on M1 than mps for this model
+print(f"Using {device} device")
+
 
 if not os.path.exists('./vae_img'):
     os.mkdir('./vae_img')
@@ -24,7 +36,7 @@ def to_img(x):
 
 num_epochs = 100
 batch_size = 128
-learning_rate = 1e-3
+learning_rate = 1e-4
 
 img_transform = transforms.Compose([
     transforms.ToTensor()
@@ -55,6 +67,7 @@ class VAE(nn.Module):
             eps = torch.cuda.FloatTensor(std.size()).normal_()
         else:
             eps = torch.FloatTensor(std.size()).normal_()
+            eps = eps.to(device)
         eps = Variable(eps)
         return eps.mul(std).add_(mu)
 
@@ -67,18 +80,11 @@ class VAE(nn.Module):
         z = self.reparametrize(mu, logvar)
         return self.decode(z), mu, logvar
 
-device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
-print(f"Using {device} device")
-
 model = VAE()
 if torch.cuda.is_available():
     model.cuda()
+else:
+    model.to(device)
 
 reconstruction_function = nn.MSELoss(reduction='sum')
 
@@ -103,12 +109,15 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 for epoch in range(num_epochs):
     model.train()
     train_loss = 0
+    t0 = time.time()
     for batch_idx, data in enumerate(dataloader):
         img, _ = data
         img = img.view(img.size(0), -1)
         #img = Variable(img)
         if torch.cuda.is_available():
             img = img.cuda()
+        else:
+            img = img.to(device)
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(img)
         loss = loss_function(recon_batch, img, mu, logvar)
@@ -122,10 +131,17 @@ for epoch in range(num_epochs):
                 len(dataloader.dataset), 100. * batch_idx / len(dataloader),
                 loss.item() / len(img)))
 
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-        epoch, train_loss / len(dataloader.dataset)))
+    t1 = time.time()
+    print('====> Epoch: {} Average loss: {:.4f} | step time {:.2f}ms'.format(
+        epoch, train_loss / len(dataloader.dataset), ((t1-t0)*1000)))
     if epoch % 10 == 0:
         save = to_img(recon_batch.cpu().data)
         save_image(save, './vae_img/image_{}.png'.format(epoch))
 
+print('Final Epoch: {} | Average loss: {:.4f} | Step time {:.2f}ms | Learning Rate: {:.5f}'.format(
+        epoch, train_loss / len(dataloader.dataset), ((t1-t0)*1000), learning_rate))
 torch.save(model.state_dict(), './vae.pth')
+
+###### TRAINING STATS ########
+### lr = 1e-4
+### ====> Epoch: 99 Average loss: 28.1472 | step time 3630.71ms  | Learning Rate: .0004
