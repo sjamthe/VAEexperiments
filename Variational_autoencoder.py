@@ -104,7 +104,7 @@ def loss_function(recon_x, x, mu, logvar):
     return BCE + KLD
 
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 for epoch in range(num_epochs):
     model.train()
@@ -143,5 +143,5 @@ print('Final Epoch: {} | Average loss: {:.4f} | Step time {:.2f}ms | Learning Ra
 torch.save(model.state_dict(), './vae.pth')
 
 ###### TRAINING STATS ########
-### lr = 1e-4
-### ====> Epoch: 99 Average loss: 28.1472 | step time 3630.71ms  | Learning Rate: .0004
+### ====> Epoch: 99 Average loss: 28.1472 | step time 3630.71ms  | Learning Rate: .001
+### Final Epoch: 99 | Average loss: 29.9968 | Step time 3552.85ms | Learning Rate: 0.00010
