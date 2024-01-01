@@ -1,4 +1,4 @@
-# Credit to https://github.com/L1aoXingyu/pytorch-beginner
+# Implement VAE with Segment
 
 import torch
 import torchvision
@@ -12,6 +12,8 @@ from torchvision.utils import save_image
 from torchvision.datasets import MNIST
 import os
 import time
+from segment import Segment
+import numpy as np
 
 device = (
     "cuda"
@@ -25,20 +27,39 @@ print(f"Using {device} device")
 
 torch.manual_seed(10)
 
-dir = './vae_img/'
+dir = './vae_seg_img/'
 if not os.path.exists(dir):
     os.mkdir(dir)
 
+def yact_to_img(x):
+    mask = x > x.mean()
+    x[mask] = 1
+    x[x <1] = 0
+    return to_img(x)
 
 def to_img(x):
     x = x.clamp(0, 1)
     x = x.view(x.size(0), 1, 28, 28)
     return x
 
+def img_to_yact(x):
+    """ convert gray scale image to image which has values of y-position instead of grayscale
+    """
+    test_image = x.numpy() 
+    limit = test_image.mean()
+    bw_array  = torch.tensor(np.where(test_image < limit, 0, 1))
+    [_, _, height, width] = bw_array.shape
+    xmax = width + 1
+    ymax = height + 1
+    maxval = max(xmax, ymax)
+    y_in = torch.arange(1./maxval, ymax/maxval, 1/maxval)
+    #create array that contains y pos values instead of 1
+    yval_array = y_in.view(y_in.shape[0], 1)*bw_array
+    return yval_array
 
 num_epochs = 100
 batch_size = 128
-learning_rate = 1e-3
+learning_rate = 1e-4
 
 img_transform = transforms.Compose([
     transforms.ToTensor()
@@ -49,10 +70,19 @@ dataset = MNIST('./data', transform=img_transform, download=False)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
-class VAE(nn.Module):
+class VAE_Seg(nn.Module):
     def __init__(self):
-        super(VAE, self).__init__()
+        super(VAE_Seg, self).__init__()
 
+        #self.seg1 = Segment(784, 20, 2)
+        #self.seg21 = Segment(400, 20, 4)
+        #self.seg22 = Segment(400, 20, 4)
+        #self.seg3 = Segment(20, 400, 4)
+        #self.fc21 = nn.Linear(20, 10)
+        #self.fc22 = nn.Linear(20, 10)
+        #self.fc3 = nn.Linear(10, 20)
+        #self.seg4 = Segment(20, 784, 2)
+        #Originsl
         self.fc1 = nn.Linear(784, 400)
         self.fc21 = nn.Linear(400, 20)
         self.fc22 = nn.Linear(400, 20)
@@ -82,7 +112,7 @@ class VAE(nn.Module):
         z = self.reparametrize(mu, logvar)
         return self.decode(z), mu, logvar
 
-model = VAE()
+model = VAE_Seg()
 if torch.cuda.is_available():
     model.cuda()
 else:
@@ -107,20 +137,22 @@ def loss_function(recon_x, x, mu, logvar):
 
 
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
 for epoch in range(1, num_epochs+1):
     model.train()
     train_loss = 0
     t0 = time.time()
     for batch_idx, data in enumerate(dataloader):
-        img, _ = data
+        orig_img, _ = data
+        img = img_to_yact(orig_img)
         img = img.view(img.size(0), -1)
-        #img = Variable(img)
+        orig_img = orig_img.view(orig_img.size(0), -1)
+        
         if torch.cuda.is_available():
             img = img.cuda()
         else:
             img = img.to(device)
         optimizer.zero_grad()
+
         recon_batch, mu, logvar = model(img)
         loss = loss_function(recon_batch, img, mu, logvar)
         loss.backward()
@@ -139,13 +171,13 @@ for epoch in range(1, num_epochs+1):
     if epoch % 10 == 0:
         save = to_img(recon_batch.cpu().data)
         save_image(save, dir + 'image_{}.png'.format(epoch))
-        save = to_img(img.cpu().data)
-        save_image(save, dir + 'orig_image_{}.png'.format(epoch))
+        save = to_img(orig_img.cpu().data)
+        save_image(save, dir + 'yact_image_{}.png'.format(epoch))
 
 print('Final Epoch: {} | Average loss: {:.4f} | Step time {:.2f}ms | Learning Rate: {:.5f}'.format(
         epoch, train_loss / len(dataloader.dataset), ((t1-t0)*1000), learning_rate))
-torch.save(model.state_dict(), './vae.pth')
+torch.save(model.state_dict(), './vae_seg.pth')
 
 ###### TRAINING STATS ########
-### ====> Epoch: 99 Average loss: 28.1472 | step time 3630.71ms  | Learning Rate: .001
-### Final Epoch: 99 | Average loss: 29.9968 | Step time 3552.85ms | Learning Rate: 0.00010
+### lr = 1e-4
+### ====> Epoch: 99 Average loss: 28.1472 | step time 3630.71ms  | Learning Rate: .0004
